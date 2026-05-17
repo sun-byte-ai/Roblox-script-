@@ -1,0 +1,180 @@
+-- TỐI ƯU HÓA: Sử dụng Local Variables cho các Service và Hàm hệ thống (Bypass Global Lookup)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local math_random = math.random
+local Vector3_new = Vector3.new
+local CFrame_new = CFrame.new
+local Instance_new = Instance.new
+
+local LocalPlayer = Players.LocalPlayer
+local Heartbeat = RunService.Heartbeat
+
+-- ==========================================
+-- 1. KHỞI TẠO GIAO DIỆN (GUI)
+-- ==========================================
+local ScreenGui = script.Parent
+if not ScreenGui:IsA("ScreenGui") then
+    ScreenGui = Instance_new("ScreenGui")
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    ScreenGui.ResetOnSpawn = false
+end
+
+local MainFrame = Instance_new("Frame")
+MainFrame.Name = "OptimizedFlingGui"
+MainFrame.Size = UDim2.new(0, 250, 0, 140)
+MainFrame.Position = UDim2.new(0.5, -125, 0.4, -70)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true 
+MainFrame.Parent = ScreenGui
+
+local FrameCorner = Instance_new("UICorner")
+FrameCorner.CornerRadius = UDim.new(0, 8)
+FrameCorner.Parent = MainFrame
+
+local TitleLabel = Instance_new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 0, 30)
+TitleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+TitleLabel.Text = "  OPTIMIZED FLING GUI"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Font = Enum.Font.SourceSansBold
+TitleLabel.TextSize = 14
+TitleLabel.Parent = MainFrame
+
+local TitleCorner = Instance_new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = TitleLabel
+
+local NameInput = Instance_new("TextBox")
+NameInput.Size = UDim2.new(0, 210, 0, 30)
+NameInput.Position = UDim2.new(0, 20, 0, 45)
+NameInput.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+NameInput.PlaceholderText = "Nhập tên mục tiêu..."
+NameInput.Text = ""
+NameInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+NameInput.Font = Enum.Font.SourceSans
+NameInput.TextSize = 14
+NameInput.Parent = MainFrame
+
+local InputCorner = Instance_new("UICorner")
+InputCorner.CornerRadius = UDim.new(0, 4)
+InputCorner.Parent = NameInput
+
+local ActionButton = Instance_new("TextButton")
+ActionButton.Size = UDim2.new(0, 210, 0, 35)
+ActionButton.Position = UDim2.new(0, 20, 0, 85)
+ActionButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+ActionButton.Text = "KÍCH HOẠT TỐC ĐỘ CAO"
+ActionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ActionButton.Font = Enum.Font.SourceSansBold
+ActionButton.TextSize = 15
+ActionButton.Parent = MainFrame
+
+local ButtonCorner = Instance_new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 4)
+ButtonCorner.Parent = ActionButton
+
+-- ==========================================
+-- 2. LOGIC XỬ LÝ (ĐÃ TỐI ƯU)
+-- ==========================================
+local isFlinging = false
+local flingConnection = nil
+local bV, bAV
+
+-- Tối ưu hóa tìm kiếm: Lưu cache danh sách người chơi
+local function getTarget(targetName)
+    targetName = targetName:lower()
+    local allPlayers = Players:GetPlayers() -- Gọi 1 lần thay vì gọi liên tục trong vòng lặp
+    for i = 1, #allPlayers do
+        local p = allPlayers[i]
+        if p ~= LocalPlayer then
+            if p.Name:lower():sub(1, #targetName) == targetName or p.DisplayName:lower():sub(1, #targetName) == targetName then
+                return p
+            end
+        end
+    end
+    return nil
+end
+
+local function stopFling(hrp, oldCFrame)
+    isFlinging = false
+    ActionButton.Text = "KÍCH HOẠT TỐC ĐỘ CAO"
+    ActionButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    
+    if flingConnection then flingConnection:Disconnect() flingConnection = nil end
+    if bV then bV:Destroy() bV = nil end
+    if bAV then bAV:Destroy() bAV = nil end
+    
+    if hrp then
+        hrp.Velocity = Vector3_new(0, 0, 0)
+        hrp.RotVelocity = Vector3_new(0, 0, 0)
+        if oldCFrame then hrp.CFrame = oldCFrame end
+    end
+end
+
+ActionButton.MouseButton1Click:Connect(function()
+    if isFlinging then isFlinging = false return end
+    
+    local targetName = NameInput.Text
+    if targetName == "" then return end
+    
+    local target = getTarget(targetName)
+    if not target or not target.Character then return end
+    
+    local targetHrp = target.Character:FindFirstChild("HumanoidRootPart")
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not targetHrp or not hrp then return end
+    
+    isFlinging = true
+    ActionButton.Text = "ĐANG ÉP XUNG... (BẤM ĐỂ DỪNG)"
+    ActionButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    
+    local oldCFrame = hrp.CFrame
+    local timeout = 0
+    
+    -- Tối ưu hóa: Chỉ tắt va chạm của các Part chính một lần duy nhất, không lặp lại liên tục
+    local parts = char:GetChildren()
+    for i = 1, #parts do
+        local part = parts[i]
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+    
+    -- Khởi tạo lực với cấu hình tối đa
+    bV = Instance_new("BodyVelocity")
+    bV.MaxForce = Vector3_new(math.huge, math.huge, math.huge)
+    bV.Velocity = Vector3_new(9e6, 9e6, 9e6) -- Sử dụng ký hiệu khoa học (9e6) giúp CPU xử lý nhanh hơn
+    bV.Parent = hrp
+    
+    bAV = Instance_new("BodyAngularVelocity")
+    bAV.MaxTorque = Vector3_new(math.huge, math.huge, math.huge)
+    bAV.AngularVelocity = Vector3_new(9e6, 9e6, 9e6)
+    bAV.Parent = hrp
+    
+    -- Vận tốc ép đẩy vật lý cố định
+    local pushVelocity = Vector3_new(0, 8000, 0)
+    
+    -- VÒNG LẶP TỐC ĐỘ CAO (Dùng bộ nhớ đệm biến local để đạt 0ms Delay)
+    flingConnection = Heartbeat:Connect(function(dt)
+        timeout = timeout + dt
+        
+        -- Kiểm tra điều kiện dừng nhanh (Micro-optimization)
+        if not isFlinging or timeout > 3.5 or not targetHrp.Parent then
+            stopFling(hrp, oldCFrame)
+            return
+        end
+        
+        -- Tính toán toán học trực tiếp thay vì tạo object CFrame mới liên tục
+        -- Tạo độ rung siêu nhỏ bằng toán học thuần thay vì các hàm phức tạp
+        local offsetX = (math_random() - 0.5) * 0.2
+        local offsetZ = (math_random() - 0.5) * 0.2
+        
+        -- Ép vị trí siêu tốc độ
+        hrp.CFrame = targetHrp.CFrame * CFrame_new(offsetX, 0, offsetZ)
+        hrp.Velocity = pushVelocity
+    end)
+end)
